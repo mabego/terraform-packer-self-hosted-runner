@@ -1,0 +1,11 @@
+[Unit]
+Description=Action Runner start up script
+
+[Service]
+ExecStart=/usr/bin/python3 /home/ubuntu/actions-runner/runner.py configure
+ExecStop=/usr/bin/python3 /home/ubuntu/actions-runner/runner.py remove
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
