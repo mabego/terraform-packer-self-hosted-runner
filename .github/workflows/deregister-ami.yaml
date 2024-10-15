@@ -1,0 +1,37 @@
+name: Deregister AMI and delete snapshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deregister:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RUNNER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Image ID
+        id: imageId
+        run: |
+          imageId=$(aws ec2 describe-images --filters "Name=tag:type,Values=runner" --query "Images[*].ImageId" --output text)
+          echo "id=$imageId" >> "$GITHUB_OUTPUT"
+      - name: Snapshot ID
+        id: snapshotId
+        run: |
+          snapshotId=$(aws ec2 describe-snapshots --filters "Name=tag:type,Values=runner" --query "Snapshots[*].SnapshotId" --output text)
+          echo "id=$snapshotId" >> "$GITHUB_OUTPUT"
+      - name: Deregister AMI
+        run: |
+          aws ec2 deregister-image --image-id ${{ steps.imageId.outputs.id }}
+        continue-on-error: true
+      - name: Delete Snapshot
+        run: |
+          aws ec2 delete-snapshot --snapshot-id ${{ steps.snapshotId.outputs.id }}
+        continue-on-error: true

@@ -1,0 +1,50 @@
+name: Provision Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_type:
+        description: 'Runner instance type'
+        default: 't2.micro'
+        required: true
+        type: string
+
+env:
+  instance_type: ${{ inputs.instance_type || '' }}
+
+jobs:
+  provision:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RUNNER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Setup Terraform backend
+        run: |
+          aws s3 mb s3://${{ vars.RUNNER_BUCKET }}
+        id: backend
+        continue-on-error: true
+      - name: Check if tfstate bucket exists
+        if: steps.backend.outcome =='failure'
+        run: echo "::warning::tfstate bucket exists"
+      - name: Tag tfstate bucket
+        run: |
+          aws s3api put-bucket-tagging --bucket ${{ vars.RUNNER_BUCKET }} --tagging 'TagSet=[{Key=type,Value=runner}]'
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - name: Terraform init
+        working-directory: ./ec2-runner
+        run: terraform init -backend-config="bucket=${{ vars.RUNNER_BUCKET }}" -backend-config="key=${{ vars.RUNNER_KEY }}"
+      - name: Terraform Plan
+        working-directory: ./ec2-runner
+        run: terraform plan -no-color -var "github_pat=${{ secrets.RUNNER_PAT }}" -var "instance_type=${{ env.instance_type }}" -input=false
+      - name: Terraform Apply
+        working-directory: ./ec2-runner
+        run: terraform apply -auto-approve -var "github_pat=${{ secrets.RUNNER_PAT }}" -var "instance_type=${{ env.instance_type }}" -input=false

@@ -1,0 +1,48 @@
+name: Destroy Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_type:
+        description: 'Runner instance type'
+        default: 't2.micro'
+        required: true
+        type: string
+
+env:
+  instance_type: ${{ inputs.instance_type || '' }}
+
+jobs:
+  destroy:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RUNNER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Runner Instance ID
+        id: instanceId
+        run: |
+          instanceId=$(aws ec2 describe-instances --filters "Name=instance-state-name,Values=running" "Name=tag:type,Values=runner" \
+            --query "Reservations[*].Instances[*].InstanceId" --output text)
+          echo "id=$instanceId" >> "$GITHUB_OUTPUT"
+      - name: Remove Runner
+        run: |
+          aws ssm send-command --instance-ids ${{ steps.instanceId.outputs.id }} --document-name "AWS-RunShellScript" \
+            --parameters commands="sudo systemctl --user -M ubuntu@ stop runner.service"
+      - name: Wait for Runner to stop
+        run: sleep 5
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - name: Terraform init
+        working-directory: ./ec2-runner
+        run: terraform init -backend-config="bucket=${{ vars.RUNNER_BUCKET }}" -backend-config="key=${{ vars.RUNNER_KEY }}"
+      - name: Terraform destroy
+        working-directory: ./ec2-runner
+        run: terraform destroy -var "github_pat=${{ secrets.RUNNER_PAT }}" -var "instance_type=${{ env.instance_type }}" -auto-approve

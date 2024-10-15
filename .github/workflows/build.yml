@@ -1,0 +1,36 @@
+name: Build Runner AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      github_repo:
+        description: 'owner/repo for Runner'
+        default: ''
+        required: true
+        type: string
+
+env:
+  github_repo: ${{ inputs.github_repo || '' }}
+
+jobs:
+  build:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RUNNER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@v3
+      - name: Packer Init
+        working-directory: ./build-runner
+        run: packer init .
+      - name: Build Runner AMI
+        working-directory: ./build-runner
+        run: packer build -color=false -var github_repo=${{ env.github_repo }} .
